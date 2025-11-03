@@ -1,0 +1,8 @@
+---
+name: Open WebUI
+icon: fa://server
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+description: |
+  [Open WebUI](https://docs.openwebui.com/) Open WebUI is an extensible, feature-rich, and user-friendly self-hosted AI platform designed to operate entirely offline. *Please note that Open WebUI can be used with both an local Ollama server (which will run in the background automatically) or with a OpenAI API token.* To see how to integrate your OpenAI API key into Open WebUI, please see [Starting With OpenAI](https://docs.openwebui.com/getting-started/quick-start/starting-with-openai).

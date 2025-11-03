@@ -1,0 +1,110 @@
+<%
+  groups = OodSupport::User.new.groups.map(&:name).drop(1)
+
+  # your image location will differ
+  ppn = num_cores.blank? ? 1 : num_cores.to_i
+  walltime = (bc_num_hours.to_i * 60)
+%>
+---
+batch_connect:
+  template: basic
+  websockify_cmd: '/usr/bin/websockify'
+  conn_params:
+    - ssh_tunnel
+    - connection_string
+  script_wrapper: |
+    module purge
+    module load singularityce
+    cat << "CTRSCRIPT" > container.sh
+    %s  
+    CTRSCRIPT
+
+    export container_image=<%= version %>
+
+    # All our software in /software so have to bind that
+    export SING_BINDS="--bind /software:/software --bind /hpc/software:/hpc/software --bind /gpfs/software:/gpfs/software --bind /opt/intel:/opt/intel"
+
+    # only bind /kellogg is individual is part of kellogg group
+    export SING_BINDS="$SING_BINDS <%= groups.include?('kellogg') ? "--bind /kellogg/:/kellogg/" : "" %>"
+
+    # only bind /scratch/<netid> if individual has a scratch space
+    export SING_BINDS="$SING_BINDS <%= File.directory?("/scratch/#{User.new.name}") ? "--bind /scratch/#{User.new.name}:/scratch/#{User.new.name}" : "" %>"
+
+    # Only bind projects directories that the user would have access to based on their unix groups
+    <%- groups.each do |group| %>
+    export SING_BINDS="$SING_BINDS <%= File.directory?("/projects/#{group}") ? "--bind /projects/#{group}:/projects/#{group} --bind /gpfs/projects/#{group}:/gpfs/projects/#{group}" : "" %>"
+    <%- end %>
+
+    export SING_ENV_VARS=""
+
+    <%- if ollama_models_dir != "" %>
+    export SING_BINDS="$SING_ENV_VARS --env OLLAMA_MODELS=<%= ollama_models_dir %>"
+    <%- end %>
+
+    <%- if ollama_context_length != "" %>
+    export SING_BINDS="$SING_ENV_VARS --env OLLAMA_CONTEXT_LENGTH=<%= ollama_context_length %>"
+    <%- end %>
+
+    # Need to add the --nv flag if we are running on a GPU
+    <%- if gres_value != "" %>
+    export SING_GPU="--nv"
+    <%- else %>
+    export SING_GPU=""
+    <%- end %>
+
+    # Create things needed to run openwebui
+    echo $(head -c 12 /dev/random | base64) > $HOME/.webui_secret_key
+    mkdir -p $HOME/openwebui/data
+
+    echo "$SING_GPU $SING_ENV_VARS $SING_BINDS --env WEBUI_SECRET_KEY_FILE=$HOME/.webui_secret_key -B $HOME/openwebui/data:/app/backend/data"
+    singularity exec $SING_GPU $SING_ENV_VARS $SING_BINDS --env WEBUI_SECRET_KEY_FILE=$HOME/.webui_secret_key -B $HOME/openwebui/data:/app/backend/data "${container_image}" /bin/bash container.sh
+
+  header: | 
+    #!/bin/bash
+        . ~/.bashrc
+script:
+   <%- if user_email != "" %>
+   email_on_started: true
+   <%- end %>
+   native:
+     # What partition is the user submitting to
+     - "--partition"
+     - "<%= slurm_partition %>"
+     # Under what account is the user submitting this job
+     - "--account"
+     - "<%= slurm_account %>"
+     # How much time (in hours)
+     - "--time"
+     - "<%= walltime %>"
+     # How many nodes (always 1)
+     <%- if number_of_nodes != "" %>
+     - "--nodes"
+     - "<%= number_of_nodes %>"
+     <%- else %>
+     - "--nodes"
+     - "1"
+     <%- end %>
+     # How many CPUs
+     - "--ntasks-per-node"
+     - "<%= ppn %>"
+     # How much memory
+     - "--mem"
+     - "<%= memory_per_node %>G"
+     # Job Name
+     - "--job-name"
+     - "<%= job_name %>"
+     # If the user supplies an e-mail, then they will get an e-mail when the job begins
+     <%- if user_email != "" %>
+     - "--mail-user"
+     - "<%= user_email %>"
+     <%- end %>
+     # If the user requested a GPU, then we need to add this argument to our job submit command
+     <%- if gres_value != "" %>
+     - "--gres"
+     - "<%= gres_value %>"
+     <%- end %>
+     # If the user requested some kind of constraint, the apply that
+     <%- if constraint != "" %>
+     - "--constraint"
+     - "<%= constraint %>"
+     <%- end %>
